@@ -8,6 +8,7 @@ import org.apache.wss4j.common.ext.WSSecurityException;
 
 import java.security.KeyStore;
 import java.security.KeyStoreException;
+import java.security.Security;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
@@ -26,33 +27,53 @@ class MerlinWithCRLDistributionPointsExtension extends Merlin {
 
     private static final Logger logger = org.apache.logging.log4j.LogManager.getLogger(MerlinWithCRLDistributionPointsExtension.class);
 
-
-    @Override
-    public void verifyTrust(final X509Certificate[] certs, final boolean enableRevocation, final Collection<Pattern> subjectCertConstraints) throws WSSecurityException {
-        if (enableRevocation) {
-            final List<X509Certificate> x509Certificates = new ArrayList<X509Certificate>(Arrays.asList(certs));
-            try {
-                try {
-                    final KeyStore keyStore = this.getTrustStore();
-                    final Enumeration<String> aliases = keyStore.aliases();
-                    while(aliases.hasMoreElements()) {
-                        final String alias = aliases.nextElement();
-                        final Certificate cert = keyStore.getCertificate(alias);
-                        if(cert instanceof X509Certificate) {
-                            x509Certificates.add((X509Certificate) cert);
-                        }
-                    }
-                } catch (final KeyStoreException e) {
-                    e.printStackTrace();
-                }
-
-                this.setCRLCertStore(InMemoryCRLStore.INSTANCE.getCRLStore(x509Certificates.toArray(new X509Certificate[x509Certificates.size()])));
-            } catch (final RevocationListException e) {
-                throw new WSSecurityException(WSSecurityException.ErrorCode.SECURITY_ERROR, e);
-            }
-        } else {
-            logger.warn("Certificate revocation lists checking is disabled.");
-        }
-        super.verifyTrust(certs, enableRevocation, subjectCertConstraints);
+    public MerlinWithCRLDistributionPointsExtension() {
+        configureSystemProperties();
     }
+
+    private void configureSystemProperties() {
+        final boolean crlDownloadEnabled = Boolean.getBoolean("com.sun.security.enableCRLDP");
+        final boolean checkRevocationEnabled = Boolean.getBoolean("com.sun.net.ssl.checkRevocation");
+        final String value = Security.getProperty("com.sun.security.onlyCheckRevocationOfEECert");
+        final boolean onlyCheckRevocationOfEECert = (value != null) && value.equalsIgnoreCase("true");
+
+        if (!crlDownloadEnabled || !checkRevocationEnabled || !onlyCheckRevocationOfEECert) {
+            logger.info("System properties will be configured to enable certificate revocation checks.");
+            System.setProperty("com.sun.security.enableCRLDP", "true");
+            System.setProperty("com.sun.net.ssl.checkRevocation", "true");
+            Security.setProperty("com.sun.security.onlyCheckRevocationOfEECert", "true"); // verify only revocation of the last cert in path (the EET cert)
+        }
+    }
+
+    /*
+    
+     @Override
+     public void verifyTrust(final X509Certificate[] certs, final boolean enableRevocation, final Collection<Pattern> subjectCertConstraints) throws WSSecurityException {
+     if (enableRevocation) {
+     final List<X509Certificate> x509Certificates = new ArrayList<X509Certificate>(Arrays.asList(certs));
+     try {
+     try {
+     final KeyStore keyStore = this.getTrustStore();
+     final Enumeration<String> aliases = keyStore.aliases();
+     while(aliases.hasMoreElements()) {
+     final String alias = aliases.nextElement();
+     final Certificate cert = keyStore.getCertificate(alias);
+     if(cert instanceof X509Certificate) {
+     x509Certificates.add((X509Certificate) cert);
+     }
+     }
+     } catch (final KeyStoreException e) {
+     e.printStackTrace();
+     }
+
+     this.setCRLCertStore(InMemoryCRLStore.INSTANCE.getCRLStore(x509Certificates.toArray(new X509Certificate[x509Certificates.size()])));
+     } catch (final RevocationListException e) {
+     throw new WSSecurityException(WSSecurityException.ErrorCode.SECURITY_ERROR, e);
+     }
+     } else {
+     logger.warn("Certificate revocation lists checking is disabled.");
+     }
+     super.verifyTrust(certs, enableRevocation, subjectCertConstraints);
+     }
+     */
 }
